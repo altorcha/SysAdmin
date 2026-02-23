@@ -279,7 +279,7 @@ function Configurar-Servicio {
             Set-DhcpServerv4OptionValue -ScopeId $subnetID -OptionId 3 -Value $gateway 
         }
         
-        if ($dns) { Set-DhcpServerv4OptionValue -ScopeId $subnetID -OptionId 6 -Value $dns }
+        if ($dns) { Set-DhcpServerv4OptionValue -ScopeId $subnetID -OptionId 6 -Value $dns -Force}
 
         Restart-Service DhcpServer -Force
         Write-Host "[EXITO] Servicio configurado y activo." -ForegroundColor Green
@@ -343,18 +343,18 @@ function Menu-DHCP(){
         Write-Host "========================================"
         Write-Host "1. Verificar Estado del Servicio"
         Write-Host "2. Instalar Servicio (Rol DHCP)"
-        Write-Host "4. Configurar Servicio"
-        Write-Host "5. Monitorear Servicio"
-        Write-Host "6. Salir"
+        Write-Host "3. Configurar Servicio"
+        Write-Host "4. Monitorear Servicio"
+        Write-Host "5. Salir"
         Write-Host "========================================"
         $opcion = Read-Host "Opcion"
 
         switch ($opcion) {
             "1" { Estado-Servicio }
             "2" { Instalar-Servicio }
-            "4" { Configurar-Servicio }
-            "5" { Monitorear-Servicio }
-            "6" { exit }
+            "3" { Configurar-Servicio }
+            "4" { Monitorear-Servicio }
+            "5" { return }
             Default { Write-Host "Opcion no valida."; Start-Sleep -Seconds 1 }
         }
     }
