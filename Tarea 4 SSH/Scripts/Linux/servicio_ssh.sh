@@ -79,6 +79,41 @@ estado_ssh() {
     done
 }
 
+#Función para instalar el servicio SSH
+instalar_ssh() {
+    clear
+    #El servicio SSH ya esta instalado?
+    if rpm -qa | grep -q openssh-server; then
+        echo -e "${YELLOW}OpenSSH Server ya está instalado.${NC}"
+        read -p "Presione Enter para continuar..."
+        return
+    fi
+
+    echo "Instalando servicio OpenSSH Server (dnf)... Esto puede tardar un momento."
+    # Instalamos el servicio
+    sudo dnf install -y openssh-server > /dev/null 2>&1
+
+    # Validamos si la instalación fue exitosa
+    if rpm -qa | grep -q openssh-server; then
+        
+        # Configurar inicio automático
+        sudo systemctl enable sshd
+
+        # Iniciar servicio SSH
+        sudo systemctl start sshd
+
+        # Configurar Firewall
+        sudo firewall-cmd --permanent --add-service=ssh > /dev/null 2>&1
+        sudo firewall-cmd --reload > /dev/null 2>&1
+
+        echo -e "${GREEN}Instalación completada, servicio configurado en automático y firewall asegurado.${NC}"
+    else
+        echo -e "${RED}Error en la instalación de OpenSSH.${NC}"
+    fi
+
+    read -p "Presione Enter para continuar..."
+}
+
 Menu-SSH(){
 while true; do
         clear
@@ -86,14 +121,16 @@ while true; do
         echo "          SERVICIO SSH (LINUX)"
         echo "======================================="
         echo "1) Estado del servicio SSH"
-        echo "2) Salir"
+        echo "2) Instalar el servicio SSH"
+        echo "3) Salir"
         echo "======================================="
 
         read -p "Selecciona una opción: " opcion
 
         case $opcion in
             1) estado_ssh ;;
-            2) return ;;
+            2) instalar_ssh ;;
+            3) return ;;
             *) 
                 echo -e "${YELLOW}Opción inválida${NC}"
                 sleep 1 
