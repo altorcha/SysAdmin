@@ -1,0 +1,286 @@
+#!/bin/bash
+#========================================================================
+#   Tarea 3: Automatización del Servidor DNS
+#   Autor: Alberto Torres Chaparro
+#   Descripción: Este script automatiza la instalación y configuración 
+#   de un servidor DNS utilizando BIND9 en Oracle Linux.
+#========================================================================
+
+# Función para ver el estado del servicio DNS
+estado_dns() {
+    while true; do
+        clear
+        echo "========================================"
+        echo "        ESTADO DEL SERVICIO DNS"
+        echo "========================================"
+
+        if ! rpm -q bind &> /dev/null; then
+            echo -e "${RED}[!] El paquete 'bind' no está instalado.${NC}"
+            echo "Use la opción de instalar servicio primero."
+            read -p "Presione Enter..."
+            return
+        fi
+
+        if systemctl is-active --quiet named; then
+            echo -e "Estado actual: ${GREEN}ACTIVO (Running)${NC}"
+            systemctl status named --no-pager | grep Active
+            echo "----------------------------------------"
+            echo "1) Detener servicio"
+            echo "2) Reiniciar servicio"
+            echo "3) Volver al menú DNS"
+        else
+            echo -e "Estado actual: ${RED}INACTIVO (Stopped)${NC}"
+            echo "----------------------------------------"
+            echo "1) Iniciar servicio"
+            echo "3) Volver al menú DNS"
+        fi
+
+        echo "----------------------------------------"
+        read -p "Seleccione una opción: " opcion
+
+        case $opcion in
+            1)
+                if systemctl is-active --quiet named; then
+                    echo "Deteniendo servicio..."
+                    systemctl stop named
+                else
+                    echo "Iniciando servicio..."
+                    systemctl start named
+                fi
+                sleep 2
+                ;;
+            2)
+                if systemctl is-active --quiet named; then
+                    echo "Reiniciando servicio..."
+                    systemctl restart named
+                    sleep 2
+                else
+                    echo "El servicio está detenido. No se puede reiniciar."
+                    sleep 2
+                fi
+                ;;
+            3)
+                return
+                ;;
+            *)
+                echo "Opción no válida."
+                sleep 1
+                ;;
+        esac
+    done
+}
+#Función para aplicar reglas del DNS al firewall
+reglasDNS() {
+
+    CONF_FILE="/etc/named.conf"
+    cp $CONF_FILE ${CONF_FILE}.bak_$(date +%Y%m%d%H%M%S) &> /dev/null
+    if grep -q "listen-on port 53" "$CONF_FILE"; then
+        sed -i 's/listen-on port 53 {[^}]*};/listen-on port 53 { any; };/' "$CONF_FILE"
+    fi
+    if grep -q "allow-query" "$CONF_FILE"; then
+        sed -i 's/allow-query[[:space:]]*{[^}]*};/allow-query { any; };/' "$CONF_FILE"
+    fi
+    named-checkconf &> /dev/null || return 1
+    systemctl restart named &> /dev/null
+    if systemctl is-active --quiet firewalld; then
+        if ! firewall-cmd --list-services | grep -qw dns; then
+            firewall-cmd --add-service=dns --permanent &> /dev/null
+            firewall-cmd --reload &> /dev/null
+        fi
+    fi
+}
+# Función para instalar el servicio DNS
+instalar_dns() {
+
+    if rpm -q bind &> /dev/null; then
+        echo "El servicio DNS ya está instalado."
+        read -p "Enter..."
+        return
+    fi
+
+    echo "Instalando BIND..."
+    dnf install -y bind bind-utils &> /dev/null
+
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}[EXITO] Instalación completada.${NC}"
+        systemctl enable named &> /dev/null
+        systemctl start named
+        reglasDNS
+    else
+        echo -e "${RED}[ERROR] Falló la instalación.${NC}"
+    fi
+
+    read -p "Enter..."
+}
+
+#Función para crear un dominio
+nuevo_dominio() {
+
+    read -p "Ingrese el nombre del dominio (ej: cocacola.com): " DOMINIO
+
+    if [ -z "$DOMINIO" ]; then
+        echo "Dominio inválido."
+        sleep 2
+        return
+    fi
+
+    # Verificar si ya existe
+    if grep -q "zone \"$DOMINIO\"" /etc/named.conf; then
+        echo "El dominio ya existe."
+        sleep 2
+        return
+    fi
+
+    # Asociar direccion al dominio
+    while true; do
+        read -p "Ingrese la dirección IP para el dominio: " IP_DOMINIO
+
+        if [[ $IP_DOMINIO =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            break
+        else
+            echo "Formato de IP inválido."
+        fi
+    done
+
+    ZONA_FILE="/var/named/$DOMINIO.zone"
+
+    echo "Creando zona DNS..."
+
+    cat <<EOF >> /etc/named.conf
+
+zone "$DOMINIO" IN {
+    type master;
+    file "$ZONA_FILE";
+};
+EOF
+
+    cat <<EOF > $ZONA_FILE
+\$TTL 86400
+@   IN  SOA ns1.$DOMINIO. admin.$DOMINIO. (
+        $(date +%Y%m%d%H)
+        3600
+        1800
+        604800
+        86400 )
+
+@       IN  NS      ns1.$DOMINIO.
+ns1     IN  A       $IP_DOMINIO
+@       IN  A       $IP_DOMINIO
+www     IN  A       $IP_DOMINIO
+EOF
+
+    chown named:named $ZONA_FILE
+    chmod 640 $ZONA_FILE
+
+    systemctl restart named
+
+    if systemctl is-active --quiet named; then
+        echo "[EXITO] Dominio $DOMINIO creado correctamente."
+        echo "IP asociada: $IP_DOMINIO"
+    else
+        echo "[ERROR] named no pudo iniciar."
+    fi
+
+    read -p "Enter..."
+}
+
+#Función para borrar un dominio
+borrar_dominio() {
+
+    read -p "Ingrese el dominio a eliminar: " DOMINIO
+    ZONA_FILE="/var/named/$DOMINIO.zone"
+
+    if ! grep -q "zone \"$DOMINIO\"" /etc/named.conf; then
+        echo "El dominio no existe."
+        sleep 2
+        return
+    fi
+
+    # Eliminar bloque de zona
+    sed -i "/zone \"$DOMINIO\"/,/};/d" /etc/named.conf
+
+    # Eliminar archivo de zona
+    rm -f $ZONA_FILE
+
+    systemctl restart named
+
+    echo -e "${GREEN}Dominio eliminado correctamente.${NC}"
+    read -p "Enter..."
+}
+
+#Función para consultar un dominio
+consultar_dominio() {
+
+    clear
+    echo "========================================"
+    echo "         CONSULTAR DOMINIO"
+    echo "========================================"
+
+    # Obtener lista de dominios definidos
+    DOMINIOS=($(grep -oP 'zone\s+"\K[^"]+' /etc/named.conf))
+
+    if [ ${#DOMINIOS[@]} -eq 0 ]; then
+        echo "No hay dominios configurados."
+        read -p "Enter..."
+        return
+    fi
+
+    echo "Dominios disponibles:"
+    echo "----------------------------------------"
+
+    # Mostrar lista numerada
+    for i in "${!DOMINIOS[@]}"; do
+        echo "$((i+1))) ${DOMINIOS[$i]}"
+    done
+
+    echo "----------------------------------------"
+    read -p "Seleccione un dominio: " opcion
+
+    # Validar selección
+    if ! [[ "$opcion" =~ ^[0-9]+$ ]] || [ "$opcion" -lt 1 ] || [ "$opcion" -gt ${#DOMINIOS[@]} ]; then
+        echo "Selección inválida."
+        sleep 2
+        return
+    fi
+
+    DOMINIO_SELECCIONADO=${DOMINIOS[$((opcion-1))]}
+
+    clear
+    echo "========================================"
+    echo "Dominio seleccionado: $DOMINIO_SELECCIONADO"
+    echo "========================================"
+
+    # Mostrar IP asociada
+    echo "Direccion IP asociada al dominio:"
+    dig @localhost +short "$DOMINIO_SELECCIONADO"
+
+    echo "----------------------------------------"
+    read -p "Enter..."
+}
+
+
+menu_dns(){
+    while true; do
+        clear
+        echo "========================================"
+        echo "               SERVICIO DNS"
+        echo "========================================"
+        echo "1) Estado del servicio DNS"
+        echo "2) Instalar el servicio DNS"
+        echo "3) Nuevo Dominio"
+        echo "4) Borrar Dominio"
+        echo "5) Consultar Dominio"
+        echo "6) Salir"
+        echo "========================================"
+        read -p "Selecciona una opción: " opcion
+        case $opcion in
+            1) estado_dns ;;
+            2) instalar_dns ;;
+            3) nuevo_dominio ;;
+            4) borrar_dominio ;;
+            5) consultar_dominio ;;
+            6) echo "Saliendo del menú DNS..."; break ;;
+            *) echo "Opción no válida. Inténtalo de nuevo." ;;
+        esac
+    done
+}
