@@ -96,18 +96,13 @@ instalar_dns() {
 #Función para crear un dominio
 nuevo_dominio() {
 
-    read -p "Ingrese el nombre del dominio (ej: reprobados.com): " DOMINIO
+    read -p "Ingrese el nombre del dominio (ej: cocacola.com): " DOMINIO
 
     if [ -z "$DOMINIO" ]; then
         echo "Dominio inválido."
         sleep 2
         return
     fi
-
-    
-    read -p "Ingrese la interfaz de red interna (ej: enp0s8): " INTERFAZ_DNS
-    IP_SERVIDOR=$(ip -4 addr show "$INTERFAZ_DNS" | grep inet | awk '{print $2}' | cut -d/ -f1)
-    ZONA_FILE="/var/named/$DOMINIO.zone"
 
     # Verificar si ya existe
     if grep -q "zone \"$DOMINIO\"" /etc/named.conf; then
@@ -116,9 +111,21 @@ nuevo_dominio() {
         return
     fi
 
+    # Asociar direccion al dominio
+    while true; do
+        read -p "Ingrese la dirección IP para el dominio: " IP_DOMINIO
+
+        if [[ $IP_DOMINIO =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            break
+        else
+            echo "Formato de IP inválido."
+        fi
+    done
+
+    ZONA_FILE="/var/named/$DOMINIO.zone"
+
     echo "Creando zona DNS..."
 
-    # Agregar zona a named.conf
     cat <<EOF >> /etc/named.conf
 
 zone "$DOMINIO" IN {
@@ -127,35 +134,31 @@ zone "$DOMINIO" IN {
 };
 EOF
 
-    # Crear archivo de zona
     cat <<EOF > $ZONA_FILE
 \$TTL 86400
 @   IN  SOA ns1.$DOMINIO. admin.$DOMINIO. (
-        2026021701
+        $(date +%Y%m%d%H)
         3600
         1800
         604800
         86400 )
 
 @       IN  NS      ns1.$DOMINIO.
-ns1     IN  A       $IP_SERVIDOR
-@       IN  A       $IP_SERVIDOR
-www     IN  A       $IP_SERVIDOR
+ns1     IN  A       $IP_DOMINIO
+@       IN  A       $IP_DOMINIO
+www     IN  A       $IP_DOMINIO
 EOF
 
     chown named:named $ZONA_FILE
     chmod 640 $ZONA_FILE
 
-    firewall-cmd --add-service=dns --permanent &> /dev/null
-    firewall-cmd --reload &> /dev/null
-
     systemctl restart named
 
     if systemctl is-active --quiet named; then
-        echo -e "${GREEN}[EXITO] Dominio $DOMINIO creado correctamente.${NC}"
-        echo "IP asociada: $IP_SERVIDOR"
+        echo "[EXITO] Dominio $DOMINIO creado correctamente."
+        echo "IP asociada: $IP_DOMINIO"
     else
-        echo -e "${RED}[ERROR] named no pudo iniciar.${NC}"
+        echo "[ERROR] named no pudo iniciar."
     fi
 
     read -p "Enter..."
