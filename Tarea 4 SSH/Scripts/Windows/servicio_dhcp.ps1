@@ -34,7 +34,40 @@ function Validar-IP {
 
     return $true
 }
+# --- CONFIGURACION DE FIREWALL Y PERFIL DE RED ---
+function Configurar-FirewallDHCP {
 
+    param (
+        [string]$InterfaceName
+    )
+
+    Write-Host "Configurando perfil de red y firewall..." -ForegroundColor Cyan
+
+    try {
+        # Cambiar perfil a Private (evita bloqueo en Public)
+        Set-NetConnectionProfile -InterfaceAlias $InterfaceName -NetworkCategory Private -ErrorAction SilentlyContinue
+
+        # Habilitar reglas del grupo DHCP Server
+        Get-NetFirewallRule -DisplayGroup "DHCP Server" -ErrorAction SilentlyContinue | 
+            Set-NetFirewallRule -Enabled True
+
+        # Crear regla manual si no existe
+        if (-not (Get-NetFirewallRule -DisplayName "DHCP UDP 67" -ErrorAction SilentlyContinue)) {
+            New-NetFirewallRule `
+                -DisplayName "DHCP UDP 67" `
+                -Direction Inbound `
+                -Protocol UDP `
+                -LocalPort 67 `
+                -Action Allow `
+                -Profile Any | Out-Null
+        }
+
+        Write-Host "[EXITO] Firewall y perfil configurados." -ForegroundColor Green
+    }
+    catch {
+        Write-Host "[ERROR] No se pudo configurar firewall o perfil." -ForegroundColor Red
+    }
+}
 # --- 1. ESTADO DEL SERVICIO ---
 function Estado-Servicio {
     while ($true) {
@@ -280,8 +313,11 @@ function Configurar-Servicio {
         }
         
         if ($dns) { Set-DhcpServerv4OptionValue -ScopeId $subnetID -OptionId 6 -Value $dns -Force}
-
+        # Asegurar binding DHCP a la IP configurada
+        $serverIP = (Get-NetIPAddress -InterfaceAlias $ifaceName -AddressFamily IPv4).IPAddress
+        Set-DhcpServerv4Binding -IPAddress $serverIP -BindingState $true -ErrorAction SilentlyContinue
         Restart-Service DhcpServer -Force
+        Configurar-FirewallDHCP -InterfaceName $ifaceName
         Write-Host "[EXITO] Servicio configurado y activo." -ForegroundColor Green
     } catch {
         Write-Host "[ERROR] Fallo la configuracion DHCP:" -ForegroundColor Red
