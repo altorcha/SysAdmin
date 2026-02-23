@@ -10,7 +10,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
 
-# --- FUNCIONES DE VALIDACION Y UTILIDADES ---
+# --- FUNCIONES DE VALIDACION ---
 
 ip_to_int() {
     local IFS=.
@@ -53,7 +53,7 @@ validar_ip_utilizable() {
     return 0
 }
 
-# --- 1. ESTADO DEL SERVICIO (MODIFICADO) ---
+# --- 1. ESTADO DEL SERVICIO ---
 estado_servicio() {
     while true; do
         clear
@@ -98,7 +98,6 @@ estado_servicio() {
                 sleep 1.5
                 ;;
             2)
-                # --- MODIFICACIÓN AQUÍ ---
                 if systemctl is-active --quiet kea-dhcp4; then
                     echo -e "${GREEN}Reiniciando KEA y purgando base de datos...${NC}"
                     
@@ -111,7 +110,6 @@ estado_servicio() {
                         echo " > Historial de IPs (leases) eliminado."
                     fi
                     
-                    # 3. Iniciamos de nuevo
                     systemctl start kea-dhcp4
                     
                     if systemctl is-active --quiet kea-dhcp4; then
@@ -135,7 +133,7 @@ estado_servicio() {
     done
 }
 
-# --- 2. INSTALACION (SILENCIOSA) ---
+# --- Función para instalar el servicio ---
 instalar_servicio() {
     echo "----------------------------------------"
     echo "        INSTALACIÓN DEL SERVICIO"
@@ -162,7 +160,7 @@ instalar_servicio() {
     read -p "Presione Enter..."
 }
 
-# --- 4. CONFIGURACION DHCP ---
+# --- Función para configurar el servicio DHCP ---
 configurar_servicio() {
     clear
     echo "========================================"
@@ -191,7 +189,7 @@ configurar_servicio() {
 
     read -p "2. Nombre del Ámbito: " SCOPE_NAME
 
-    # --- RANGO INICIAL (IP DEL SERVIDOR) ---
+    # --- RANGO INICIAL ---
     while true; do
         read -p "3. Rango inicial: " IP_INICIO
         # Validamos usando la nueva lógica
@@ -229,7 +227,7 @@ configurar_servicio() {
         fi
     done
 
-    # --- GATEWAY (MODIFICADO) ---
+    # --- GATEWAY ---
     while true; do
         read -p "5. Gateway (Enter para omitir): " GATEWAY
         
@@ -251,7 +249,7 @@ configurar_servicio() {
         fi
     done
 
-    read -p "6. DNS (Enter para omitir): " DNS_SERVER
+    DNS_SERVER="$IP_INICIO"
     if [ -n "$DNS_SERVER" ] && ! validar_formato_ip "$DNS_SERVER"; then
         echo "   [!] DNS inválido, se omitirá."
         DNS_SERVER=""
