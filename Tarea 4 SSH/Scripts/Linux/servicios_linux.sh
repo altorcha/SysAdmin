@@ -1,6 +1,7 @@
 #!/bin/bash
 source servicio_dhcp.sh
 source servicio_dns.sh
+source servicio_ssh.sh
 while true; do
     clear
     echo "========================================"
@@ -8,14 +9,16 @@ while true; do
     echo "========================================"
     echo "1. Servicio DHCP"
     echo "2. Servicio DNS"
-    echo "3. Salir"
+    echo "3. Servicio SSH"
+    echo "4. Salir"
     echo "========================================"
     read -p "Seleccione una opción: " op
 
     case $op in
         1) menu_dhcp ;;
         2) menu_dns ;;
-        3) exit 0 ;;
+        3) Menu-SSH ;;
+        4) exit 0 ;;
         *) echo "Opción inválida" ; sleep 1 ;;
     esac
 done
