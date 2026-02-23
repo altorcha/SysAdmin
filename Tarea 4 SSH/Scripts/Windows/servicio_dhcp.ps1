@@ -314,8 +314,7 @@ function Configurar-Servicio {
         
         if ($dns) { Set-DhcpServerv4OptionValue -ScopeId $subnetID -OptionId 6 -Value $dns -Force}
         # Asegurar binding DHCP a la IP configurada
-        $serverIP = (Get-NetIPAddress -InterfaceAlias $ifaceName -AddressFamily IPv4).IPAddress
-        Set-DhcpServerv4Binding -IPAddress $serverIP -BindingState $true -ErrorAction SilentlyContinue
+        Set-DhcpServerv4Binding -InterfaceAlias $ifaceName -BindingState $true -ErrorAction SilentlyContinue
         Restart-Service DhcpServer -Force
         Configurar-FirewallDHCP -InterfaceName $ifaceName
         Write-Host "[EXITO] Servicio configurado y activo." -ForegroundColor Green
