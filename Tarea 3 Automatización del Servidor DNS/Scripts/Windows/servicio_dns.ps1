@@ -4,39 +4,79 @@
 #   Descripción: Este script automatiza la instalación y configuración 
 #   del servicio DNS en Windows Server 2022.
 #========================================================================
-
+. .\servicio_dhcp.ps1
 function Estado-DNS {
 
-    Clear-Host
-    Write-Host "======================================="
-    Write-Host "      ESTADO DEL SERVICIO DNS"
-    Write-Host "======================================="
+    while ($true) {
 
-    $servicio = Get-Service -Name DNS -ErrorAction SilentlyContinue
+        Clear-Host
+        Write-Host "----------------------------------------"
+        Write-Host "        ESTADO DEL SERVICIO DNS"
+        Write-Host "----------------------------------------"
 
-    if ($servicio -eq $null) {
-        Write-Host "Servicio DNS no instalado." -ForegroundColor Red
-        Pause
-        return
+        # Verificar si el Rol DNS esta instalado
+        $dnsInstalled = Get-WindowsFeature -Name DNS
+
+        if ($dnsInstalled.InstallState -ne "Installed") {
+            Write-Host "[!] El Rol 'DNS Server' NO esta instalado." -ForegroundColor Red
+            Write-Host "Por favor, use la opcion de instalacion."
+            Read-Host "Presione Enter para volver..."
+            return
+        }
+
+        $service = Get-Service DNS
+
+        if ($service.Status -eq "Running") {
+            Write-Host "Estado Actual: " -NoNewline
+            Write-Host "ACTIVO (Running)" -ForegroundColor Green
+            Write-Host "----------------------------------------"
+            Write-Host " [1] Detener el servicio"
+            Write-Host " [2] Reiniciar el servicio"
+            Write-Host " [3] Volver al menu principal"
+        }
+        else {
+            Write-Host "Estado Actual: " -NoNewline
+            Write-Host "DETENIDO (Stopped)" -ForegroundColor Red
+            Write-Host "----------------------------------------"
+            Write-Host " [1] Iniciar el servicio"
+            Write-Host " [3] Volver al menu principal"
+        }
+
+        Write-Host "----------------------------------------"
+        $opcion = Read-Host "Seleccione una opcion"
+
+        switch ($opcion) {
+
+            "1" {
+                if ($service.Status -eq "Running") {
+                    Write-Host "Deteniendo servicio DNS..." -ForegroundColor Yellow
+                    Stop-Service DNS -Force
+                }
+                else {
+                    Write-Host "Iniciando servicio DNS..." -ForegroundColor Green
+                    Start-Service DNS
+                }
+                Start-Sleep -Seconds 2
+            }
+
+            "2" {
+                if ($service.Status -eq "Running") {
+                    Write-Host "Reiniciando servicio DNS..." -ForegroundColor Green
+                    Restart-Service DNS -Force
+                    Start-Sleep -Seconds 2
+                }
+            }
+
+            "3" { return }
+
+            Default {
+                Write-Host "Opcion no valida." -ForegroundColor Yellow
+                Start-Sleep -Seconds 1
+            }
+        }
     }
-
-    Write-Host "Estado actual: $($servicio.Status)"
-
-    Write-Host ""
-    Write-Host "1) Iniciar Servicio"
-    Write-Host "2) Reiniciar Servicio"
-    Write-Host "3) Volver"
-
-    $op = Read-Host "Seleccione opcion"
-
-    switch ($op) {
-        "1" { Start-Service DNS }
-        "2" { Restart-Service DNS }
-        default { return }
-    }
-
-    Pause
 }
+
 
 function Instalar-DNS {
 
@@ -84,7 +124,11 @@ function Instalar-DNS {
 function Nuevo-Dominio {
 
     Clear-Host
-    $dominio = Read-Host "Ingrese el nombre del dominio: "
+
+    # ==============================
+    # 1. Solicitar nombre de dominio
+    # ==============================
+    $dominio = Read-Host "Ingrese el nombre del dominio"
 
     if ([string]::IsNullOrWhiteSpace($dominio)) {
         Write-Host "Dominio invalido." -ForegroundColor Red
@@ -92,39 +136,62 @@ function Nuevo-Dominio {
         return
     }
 
-    # Detectar IP automáticamente (red interna)
-    $ipServidor = (Get-NetIPAddress -AddressFamily IPv4 `
-        | Where-Object { $_.IPAddress -notlike "169.*" -and $_.IPAddress -ne "127.0.0.1" } `
-        | Select-Object -First 1).IPAddress
-
-    if (-not $ipServidor) {
-        Write-Host "No se pudo detectar IP." -ForegroundColor Red
-        Pause
-        return
-    }
-
+    # ==============================
+    # 2. Validar si ya existe el dominio
+    # ==============================
     if (Get-DnsServerZone -Name $dominio -ErrorAction SilentlyContinue) {
         Write-Host "El dominio ya existe." -ForegroundColor Yellow
         Pause
         return
     }
 
-    Write-Host "Creando zona DNS..."
+    # ==============================
+    # 3. Solicitar la dirección del dominio
+    # ==============================
+    do {
+        $ipServidor = Read-Host "Ingrese la direccion IP que se asociara al dominio"
 
-    Add-DnsServerPrimaryZone -Name $dominio -ZoneFile "$dominio.dns"
+        $valida = -not [string]::IsNullOrWhiteSpace($ipServidor) -and (Validar-IP $ipServidor)
 
-    Add-DnsServerResourceRecordA `
-        -ZoneName $dominio `
-        -Name "@" `
-        -IPv4Address $ipServidor
+        if (-not $valida) {
+            Write-Host "Debe ingresar una direccion IP valida." -ForegroundColor Red
+        }
 
-    Add-DnsServerResourceRecordA `
-        -ZoneName $dominio `
-        -Name "www" `
-        -IPv4Address $ipServidor
+    } until ($valida)
 
-    Write-Host "Dominio creado correctamente." -ForegroundColor Green
-    Write-Host "IP asociada: $ipServidor"
+    # ==============================
+    # 4. Crear zona DNS
+    # ==============================
+    try {
+
+        Write-Host "Creando zona DNS..."
+
+        Add-DnsServerPrimaryZone `
+            -Name $dominio `
+            -ZoneFile "$dominio.dns" `
+            -ErrorAction Stop
+
+        # Registro A raiz (@)
+        Add-DnsServerResourceRecordA `
+            -ZoneName $dominio `
+            -Name "@" `
+            -IPv4Address $ipServidor `
+            -ErrorAction Stop
+
+        # Registro A www
+        Add-DnsServerResourceRecordA `
+            -ZoneName $dominio `
+            -Name "www" `
+            -IPv4Address $ipServidor `
+            -ErrorAction Stop
+
+        Write-Host "Dominio creado correctamente." -ForegroundColor Green
+        Write-Host "IP asociada: $ipServidor"
+
+    }
+    catch {
+        Write-Host "Error al crear el dominio: $($_.Exception.Message)" -ForegroundColor Red
+    }
 
     Pause
 }
@@ -207,7 +274,7 @@ function Menu-DNS(){
         "3" { Nuevo-Dominio }
         "4" { Borrar-Dominio }
         "5" { Consultar-Dominio }
-        "6" { exit }
+        "6" { return }
         default { Write-Host "Opcion invalida"; Start-Sleep 1 }
     }
 }
