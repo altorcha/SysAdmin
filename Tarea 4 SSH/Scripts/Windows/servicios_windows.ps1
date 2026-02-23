@@ -24,7 +24,8 @@ while ($true) {
     switch ($op) {
         "1" { Menu-DHCP }
         "2" { Menu-DNS }
-        "3" { return }
+        "3" { Menu-SSH }
+        "4" { return }
         default { 
             Write-Host "Opcion invalida"
             Start-Sleep 1
