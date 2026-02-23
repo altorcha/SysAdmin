@@ -69,7 +69,26 @@ estado_dns() {
         esac
     done
 }
+#Función para aplicar reglas del DNS al firewall
+reglasDNS() {
 
+    CONF_FILE="/etc/named.conf"
+    cp $CONF_FILE ${CONF_FILE}.bak_$(date +%Y%m%d%H%M%S) &> /dev/null
+    if grep -q "listen-on port 53" "$CONF_FILE"; then
+        sed -i 's/listen-on port 53 {[^}]*};/listen-on port 53 { any; };/' "$CONF_FILE"
+    fi
+    if grep -q "allow-query" "$CONF_FILE"; then
+        sed -i 's/allow-query[[:space:]]*{[^}]*};/allow-query { any; };/' "$CONF_FILE"
+    fi
+    named-checkconf &> /dev/null || return 1
+    systemctl restart named &> /dev/null
+    if systemctl is-active --quiet firewalld; then
+        if ! firewall-cmd --list-services | grep -qw dns; then
+            firewall-cmd --add-service=dns --permanent &> /dev/null
+            firewall-cmd --reload &> /dev/null
+        fi
+    fi
+}
 # Función para instalar el servicio DNS
 instalar_dns() {
 
@@ -86,6 +105,7 @@ instalar_dns() {
         echo -e "${GREEN}[EXITO] Instalación completada.${NC}"
         systemctl enable named &> /dev/null
         systemctl start named
+        reglasDNS
     else
         echo -e "${RED}[ERROR] Falló la instalación.${NC}"
     fi
