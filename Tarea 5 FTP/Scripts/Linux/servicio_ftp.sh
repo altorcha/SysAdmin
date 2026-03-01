@@ -1,9 +1,9 @@
 #!/bin/bash
-# ======================================================================================
+# =====================================================================================================================
 # Tarea 5: Automatización de Servidor FTP
 # Autor: Alberto Torres Chaparro
-# Update: Este Script contiene la función para verificar el estado del servicio FTP y controlarlo.
-# ======================================================================================
+# Update: Implementacion de la función Menu-FTP para la gestión del servicio FTP desde el menú principal de servicios.
+# =====================================================================================================================
 #Variables de color
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -17,7 +17,8 @@ instalar_ftp() {
     echo "================================================"
     if rpm -q vsftpd &> /dev/null; then
         echo -e "${YELLOW}El servicio FTP ya está instalado.${NC}"
-        read -p "Enter..."
+        echo "================================================"
+        read -p "Presione Enter para continuar..."
         return
     fi
 
@@ -45,7 +46,7 @@ estado_ftp() {
 
         # ¿El servicio vsftpd está instalado?
         if ! rpm -q vsftpd &>/dev/null; then
-            echo -e "${RED}[!] El paquete 'vsftpd' NO está instalado.${NC}"
+            echo -e "${RED}[!] El servicio FTP NO está instalado.${NC}"
             echo "Use la opción de instalación primero."
             echo "----------------------------------------"
             read -p "Presione Enter para volver..."
@@ -102,4 +103,31 @@ estado_ftp() {
     done
 }
 
-estado_ftp
+#estado_ftp
+
+Menu-FTP(){
+    while true; do
+        clear
+        echo "================================================"
+        echo "                 SERVICIO FTP"
+        echo "================================================"
+        echo " [1] Instalar Servicio FTP"
+        echo " [2] Verificar Estado del Servicio FTP"
+        echo " [3] Volver al Menu Principal"
+        echo "================================================"
+        read -p "Seleccione una opción: " opcion
+
+        case $opcion in
+            1)
+                instalar_ftp;;
+            2)
+                estado_ftp;;
+            3)
+                return;;
+            *)
+                echo -e "${YELLOW}Opción no válida.${NC}"
+                sleep 1
+                ;;
+        esac
+    done
+}
