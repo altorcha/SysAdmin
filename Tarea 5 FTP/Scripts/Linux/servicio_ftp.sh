@@ -102,7 +102,27 @@ estado_ftp() {
         esac
     done
 }
-
+configurar_firewall_ftp() {
+    # 1. Verificar e iniciar firewalld en silencio
+    if ! systemctl is-active firewalld &>/dev/null; then
+        sudo systemctl start firewalld &>/dev/null
+        sudo systemctl enable firewalld &>/dev/null
+    fi
+    # 2. Agregar servicio FTP y puertos pasivos en silencio
+    sudo firewall-cmd --permanent --add-service=ftp &>/dev/null
+    sudo firewall-cmd --permanent --add-port=40000-40100/tcp &>/dev/null
+    # 3. Recargar y aplicar SELinux en silencio
+    sudo firewall-cmd --reload &>/dev/null
+    sudo setsebool -P ftpd_full_access 1 &>/dev/null
+    
+    # 4. Mostrar solo el resultado final
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}[EXITO] Reglas de Firewall y SELinux aplicadas.${NC}"
+    else
+        echo -e "${RED}[ERROR] Falló la configuración de red.${NC}"
+    fi
+    sleep 1
+}
 #estado_ftp
 
 Menu-FTP(){
