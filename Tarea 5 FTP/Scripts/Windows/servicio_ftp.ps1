@@ -197,4 +197,175 @@ function Configurar-SitioFTP {
     Write-Host "Carpetas base listas en $rutaSitio y grupos creados." -ForegroundColor Green
     Pause
 }
-Configurar-SitioFTP
+#Configurar-SitioFTP
+
+# ====================================================================
+#   FUNCIONES DE GESTION DE USUARIOS FTP (WINDOWS)
+# ====================================================================
+
+function Crear-UsuariosFTP {
+    $rutaSitio = "C:\SrvFTP"
+    $nombreSitio = "ServicioFTP"
+    Import-Module WebAdministration
+
+    $n = Read-Host "¿Cuantos usuarios desea crear?"
+    
+    for ($i = 1; $i -le [int]$n; $i++) {
+        Write-Host "`n--- Datos del Usuario #$i ---" -ForegroundColor Cyan
+        $usuario = Read-Host "Nombre de usuario"
+        $passPlana = Read-Host "Contrasena para $usuario" -AsSecureString
+        
+        Write-Host "Seleccione el grupo del usuario:"
+        Write-Host " [1] Reprobados"
+        Write-Host " [2] Recursadores"
+        $g_opt = Read-Host "Seleccion"
+        
+        $grupo = if ($g_opt -eq "1") { "reprobados" } else { "recursadores" }
+
+        # 1. Crear usuario si no existe
+        if (Get-LocalUser -Name $usuario -ErrorAction SilentlyContinue) {
+            Write-Host "[!] El usuario ya existe. Verificando estructura..." -ForegroundColor Yellow
+        } else {
+            New-LocalUser -Name $usuario -Password $passPlana -PasswordNeverExpires -FullName "Usuario FTP" | Out-Null
+            Add-LocalGroupMember -Group $grupo -Member $usuario -ErrorAction SilentlyContinue
+            Write-Host "[EXITO] Usuario creado en Windows." -ForegroundColor Green
+        }
+
+        # 2. Crear carpetas (La jaula principal y la personal)
+        $rutaUsuarioBase = "$rutaSitio\LocalUser\$usuario"
+        $rutaPersonal = "$rutaUsuarioBase\$usuario"
+        if (!(Test-Path $rutaUsuarioBase)) { New-Item -ItemType Directory -Path $rutaUsuarioBase | Out-Null }
+        if (!(Test-Path $rutaPersonal)) { New-Item -ItemType Directory -Path $rutaPersonal | Out-Null }
+
+        # 3. Permisos NTFS
+        icacls $rutaPersonal /grant "${usuario}:(OI)(CI)M" /T /Q | Out-Null
+
+        # 4. Enlaces Virtuales en IIS
+        if (!(Get-WebVirtualDirectory -Site $nombreSitio -Name "LocalUser/$usuario/general" -ErrorAction SilentlyContinue)) {
+            New-WebVirtualDirectory -Site $nombreSitio -Application "/" -Name "LocalUser/$usuario/general" -PhysicalPath "$rutaSitio\general" | Out-Null
+        }
+        if (!(Get-WebVirtualDirectory -Site $nombreSitio -Name "LocalUser/$usuario/$grupo" -ErrorAction SilentlyContinue)) {
+            New-WebVirtualDirectory -Site $nombreSitio -Application "/" -Name "LocalUser/$usuario/$grupo" -PhysicalPath "$rutaSitio\$grupo" | Out-Null
+        }
+
+        Write-Host "Estructura actualizada para $($usuario): [general, $grupo, $usuario]" -ForegroundColor Cyan
+    }
+    Pause
+}
+
+function Consultar-UsuariosFTP {
+    Write-Host "`nLista de usuarios FTP y sus grupos:" -ForegroundColor Cyan
+    Write-Host "------------------------------------------------"
+    $gruposFTP = @("reprobados", "recursadores")
+    
+    foreach ($g in $gruposFTP) {
+        $miembros = Get-LocalGroupMember -Group $g -ErrorAction SilentlyContinue
+        foreach ($m in $miembros) {
+            if ($m.ObjectClass -eq "User") {
+                $nombreLimpio = $m.Name.Split('\')[-1]
+                Write-Host "Usuario: $nombreLimpio`t | Grupo Principal: $g"
+            }
+        }
+    }
+    Write-Host "------------------------------------------------"
+    Pause
+}
+
+function Eliminar-UsuarioFTP {
+    $rutaSitio = "C:\SrvFTP"
+    $nombreSitio = "ServicioFTP"
+    Import-Module WebAdministration
+
+    $usuario_del = Read-Host "Nombre del usuario a eliminar"
+    
+    if (Get-LocalUser -Name $usuario_del -ErrorAction SilentlyContinue) {
+        Write-Host "Desmontando directorios virtuales en IIS..." -ForegroundColor Yellow
+        Remove-WebVirtualDirectory -Site $nombreSitio -Application "/" -Name "LocalUser/$usuario_del/general" -ErrorAction SilentlyContinue
+        Remove-WebVirtualDirectory -Site $nombreSitio -Application "/" -Name "LocalUser/$usuario_del/reprobados" -ErrorAction SilentlyContinue
+        Remove-WebVirtualDirectory -Site $nombreSitio -Application "/" -Name "LocalUser/$usuario_del/recursadores" -ErrorAction SilentlyContinue
+
+        Write-Host "Borrando archivos fisicos y cuenta de Windows..." -ForegroundColor Yellow
+        Remove-Item -Path "$rutaSitio\LocalUser\$usuario_del" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-LocalUser -Name $usuario_del
+        
+        Write-Host "[EXITO] Usuario eliminado correctamente." -ForegroundColor Green
+    } else {
+        Write-Host "[ERROR] El usuario no existe." -ForegroundColor Red
+    }
+    Pause
+}
+
+function Cambiar-GrupoUsuario {
+    $rutaSitio = "C:\SrvFTP"
+    $nombreSitio = "ServicioFTP"
+    Import-Module WebAdministration
+
+    Write-Host "`n--- CAMBIO DE GRUPO ---" -ForegroundColor Cyan
+    $usuario = Read-Host "Ingrese el nombre del usuario a modificar (ej. u1)"
+
+    if (Get-LocalUser -Name $usuario -ErrorAction SilentlyContinue) {
+        Write-Host "Seleccione el NUEVO grupo para $($usuario):"
+        Write-Host "[1] reprobados"
+        Write-Host "[2] recursadores"
+        $opcion = Read-Host "Seleccion"
+
+        if ($opcion -eq "1") { $nuevo_grupo = "reprobados" }
+        elseif ($opcion -eq "2") { $nuevo_grupo = "recursadores" }
+        else { Write-Host "Opcion no valida." -ForegroundColor Red; Start-Sleep -Seconds 2; return }
+
+        $grupo_viejo = ""
+        if (Get-LocalGroupMember -Group "reprobados" -Member $usuario -ErrorAction SilentlyContinue) { $grupo_viejo = "reprobados" }
+        if (Get-LocalGroupMember -Group "recursadores" -Member $usuario -ErrorAction SilentlyContinue) { $grupo_viejo = "recursadores" }
+
+        if ($grupo_viejo -eq $nuevo_grupo) {
+            Write-Host "[!] El usuario ya pertenece al grupo $nuevo_grupo." -ForegroundColor Yellow
+            Pause
+            return
+        }
+
+        if ($grupo_viejo) {
+            Remove-LocalGroupMember -Group $grupo_viejo -Member $usuario -ErrorAction SilentlyContinue
+            Write-Host "Desmontando carpeta virtual anterior..."
+            Remove-WebVirtualDirectory -Site $nombreSitio -Application "/" -Name "LocalUser/$usuario/$grupo_viejo" -ErrorAction SilentlyContinue
+        }
+        
+        Add-LocalGroupMember -Group $nuevo_grupo -Member $usuario -ErrorAction SilentlyContinue
+
+        Write-Host "Montando nueva carpeta compartida..."
+        New-WebVirtualDirectory -Site $nombreSitio -Application "/" -Name "LocalUser/$usuario/$nuevo_grupo" -PhysicalPath "$rutaSitio\$nuevo_grupo" | Out-Null
+
+        Write-Host "[EXITO] Usuario movido a $nuevo_grupo exitosamente." -ForegroundColor Green
+        Write-Host "La nueva estructura es: [general, $nuevo_grupo, $usuario]" -ForegroundColor Cyan
+    } else {
+        Write-Host "[ERROR] El usuario no existe." -ForegroundColor Red
+    }
+    Pause
+}
+
+# --- MENU DE GESTION DE USUARIOS ---
+function Gestionar-UsuariosFTP {
+    while ($true) {
+        Clear-Host
+        Write-Host "================================================" -ForegroundColor Cyan
+        Write-Host "       GESTION DE USUARIOS Y PERMISOS FTP"
+        Write-Host "================================================" -ForegroundColor Cyan
+        Write-Host " [1] Crear Usuarios"
+        Write-Host " [2] Consultar Usuarios Actuales"
+        Write-Host " [3] Eliminar Usuario"
+        Write-Host " [4] Cambiar Grupo de Usuario"    
+        Write-Host " [5] Volver al Menu FTP"
+        Write-Host "================================================" -ForegroundColor Cyan
+        
+        $subopcion = Read-Host "Seleccione una opcion"
+
+        switch ($subopcion) {
+            "1" { Crear-UsuariosFTP }
+            "2" { Consultar-UsuariosFTP }
+            "3" { Eliminar-UsuarioFTP }
+            "4" { Cambiar-GrupoUsuario }
+            "5" { return }
+            default { Write-Host "Opcion no valida." -ForegroundColor Yellow; Start-Sleep -Seconds 1 }
+        }
+    }
+}
+Gestionar-UsuariosFTP
