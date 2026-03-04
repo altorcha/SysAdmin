@@ -136,4 +136,65 @@ function Instalar-FTP {
 
     Pause
 }
-Instalar-FTP
+#Instalar-FTP
+
+function Configurar-SitioFTP {
+    Clear-Host
+    Write-Host "================================================" 
+    Write-Host "             CONFIGURANDO SITIO FTP"
+    Write-Host "================================================"
+
+    Import-Module WebAdministration
+
+    $rutaSitio = "C:\SrvFTP"
+    $nombreSitio = "ServicioFTP"
+
+    # 1. Crear estructura de carpetas base
+    Write-Host "[+] Creando estructura de carpetas en $rutaSitio..." -ForegroundColor Yellow
+    if (!(Test-Path $rutaSitio)) { New-Item -ItemType Directory -Path $rutaSitio | Out-Null }
+    
+    # Carpetas
+    $carpetasFisicas = @("general", "reprobados", "recursadores")
+    foreach ($carpeta in $carpetasFisicas) {
+        $rutaCarpeta = Join-Path $rutaSitio $carpeta
+        if (!(Test-Path $rutaCarpeta)) { New-Item -ItemType Directory -Path $rutaCarpeta | Out-Null }
+    }
+
+    # Carpeta especial requerida por IIS para el usuario Anónimo
+    $rutaAnon = Join-Path $rutaSitio "LocalUser\Public"
+    if (!(Test-Path $rutaAnon)) { New-Item -ItemType Directory -Path $rutaAnon -Force | Out-Null }
+
+    # 2. Crear Grupos Locales en Windows
+    Write-Host "[+] Creando grupos..." -ForegroundColor Yellow
+    if (!(Get-LocalGroup -Name "reprobados" -ErrorAction SilentlyContinue)) { New-LocalGroup -Name "reprobados" -Description "Grupo FTP" | Out-Null }
+    if (!(Get-LocalGroup -Name "recursadores" -ErrorAction SilentlyContinue)) { New-LocalGroup -Name "recursadores" -Description "Grupo FTP" | Out-Null }
+
+    # 3. Limpiar y Crear Sitio en IIS
+    Write-Host "[+] Configurando el sitio en IIS..." -ForegroundColor Yellow
+    if (Get-Website -Name $nombreSitio -ErrorAction SilentlyContinue) {
+        Remove-Website -Name $nombreSitio
+    }
+    
+    New-WebFtpSite -Name $nombreSitio -Port 21 -PhysicalPath $rutaSitio -Force | Out-Null
+
+    # 4. Configurar Autenticación (Anónima y Básica) y SSL
+    Set-ItemProperty -Path "IIS:\Sites\$nombreSitio" -Name "ftpServer.security.ssl.controlChannelPolicy" -Value "SslAllow"
+    Set-ItemProperty -Path "IIS:\Sites\$nombreSitio" -Name "ftpServer.security.ssl.dataChannelPolicy" -Value "SslAllow"
+    
+    Set-ItemProperty -Path "IIS:\Sites\$nombreSitio" -Name "ftpServer.security.authentication.anonymousAuthentication.enabled" -Value $true
+    Set-ItemProperty -Path "IIS:\Sites\$nombreSitio" -Name "ftpServer.security.authentication.basicAuthentication.enabled" -Value $true
+
+    # 5. Reglas de Autorización Base (Dejamos pasar a todos, NTFS hará el bloqueo)
+    Add-WebConfiguration -Filter "/system.ftpServer/security/authorization" -Location $nombreSitio -Value @{accessType="Allow"; users="*"; permissions="Read, Write"} -PSPath "IIS:\"
+
+    # 6. Aislamiento de Usuarios (El "chroot" de Windows)
+    # Mode = StartInUsersDirectory aísla a los usuarios en su propia carpeta
+    Set-ItemProperty -Path "IIS:\Sites\$nombreSitio" -Name "ftpServer.userIsolation.mode" -Value "StartInUsersDirectory"
+
+    Restart-Service ftpsvc
+
+    Write-Host "`n[EXITO] Sitio FTP '$nombreSitio' creado exitosamente." -ForegroundColor Green
+    Write-Host "Carpetas base listas en $rutaSitio y grupos creados." -ForegroundColor Green
+    Pause
+}
+Configurar-SitioFTP
