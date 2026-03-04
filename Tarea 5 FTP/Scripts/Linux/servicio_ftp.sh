@@ -2,7 +2,7 @@
 # =====================================================================================================================
 # Tarea 5: Automatización de Servidor FTP
 # Autor: Alberto Torres Chaparro
-# Update: Implementacion de la función Menu-FTP para la gestión del servicio FTP desde el menú principal de servicios.
+# Update: Implementacion de las funciones de reglas de firewall y configuración del servicio FTP
 # =====================================================================================================================
 #Variables de color
 GREEN='\033[0;32m'
