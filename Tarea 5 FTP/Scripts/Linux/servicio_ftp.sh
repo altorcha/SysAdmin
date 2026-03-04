@@ -2,7 +2,7 @@
 # =====================================================================================================================
 # Tarea 5: Automatización de Servidor FTP
 # Autor: Alberto Torres Chaparro
-# Update: Funciones para la gestión de usuarios FTP.
+# Update: Menú principal para gestión del servicio FTP, incluyendo instalación, estado, configuración de firewall y gestión de usuarios.
 # =====================================================================================================================
 #Variables de color
 GREEN='\033[0;32m'
@@ -124,33 +124,6 @@ configurar_firewall_ftp() {
     sleep 1
 }
 #estado_ftp
-
-Menu-FTP(){
-    while true; do
-        clear
-        echo "================================================"
-        echo "                 SERVICIO FTP"
-        echo "================================================"
-        echo " [1] Instalar Servicio FTP"
-        echo " [2] Verificar Estado del Servicio FTP"
-        echo " [3] Volver al Menu Principal"
-        echo "================================================"
-        read -p "Seleccione una opción: " opcion
-
-        case $opcion in
-            1)
-                instalar_ftp;;
-            2)
-                estado_ftp;;
-            3)
-                return;;
-            *)
-                echo -e "${YELLOW}Opción no válida.${NC}"
-                sleep 1
-                ;;
-        esac
-    done
-}
 
 #===========================================================
 #           FUNCIONES DE GESTIÓN DE USUARIOS FTP
@@ -330,6 +303,42 @@ Gestionar-Usuarios-FTP() {
             4) cambiar_grupo_usuario ;;
             5) return ;;
             *) echo -e "${YELLOW}Opción no válida.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+Menu-FTP(){
+    while true; do
+        clear
+        echo "================================================"
+        echo "                 SERVICIO FTP"
+        echo "================================================"
+        echo " [1] Instalar Servicio FTP"
+        echo " [2] Verificar Estado del Servicio FTP"
+        echo " [3] Configurar Servicio FTP"
+        echo " [4] Configurar Firewall para FTP"
+        echo " [5] Gestionar Usuarios FTP"
+        echo " [6] Volver al Menu Principal"
+        echo "================================================"
+        read -p "Seleccione una opción: " opcion
+
+        case $opcion in
+            1)
+                instalar_ftp;;
+            2)
+                estado_ftp;;
+            3)
+                configurar_ftp;;
+            4)
+                configurar_firewall_ftp;;
+            5)
+                Gestionar-Usuarios-FTP;;
+            6)
+                return;;
+            *)
+                echo -e "${YELLOW}Opción no válida.${NC}"
+                sleep 1
+                ;;
         esac
     done
 }
