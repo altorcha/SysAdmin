@@ -1,6 +1,6 @@
 source colores.sh
 source utilidades.sh
-servididor_instalado() {
+servidor_instalado() {
     local servicio="$1"
 
     case "$servicio" in
@@ -21,7 +21,7 @@ servididor_instalado() {
     return 1
 }
 instalar_apache() {
-    servididor_instalado "Apache" && return
+    servidor_instalado "Apache" && return
     while true; do
         read -p "Ingrese el puerto para Apache: " PUERTO
 
@@ -45,6 +45,9 @@ instalar_apache() {
 
     sed -i "s/^Listen .*/Listen $PUERTO/" /etc/httpd/conf/httpd.conf
 
+    VERSION=$(httpd -v | grep version | awk '{print $3}')
+    crear_index "/var/www/html" "Apache" "$VERSION" "$PUERTO"
+
     firewall-cmd --add-port=${PUERTO}/tcp --permanent &>/dev/null
     firewall-cmd --reload &>/dev/null
 
@@ -57,7 +60,7 @@ instalar_apache() {
 }
 
 instalar_nginx() {
-    servididor_instalado "Nginx" && return
+    servidor_instalado "Nginx" && return
     while true; do
         read -p "Ingrese el puerto para Nginx: " PUERTO
 
@@ -81,6 +84,9 @@ instalar_nginx() {
 
     sed -i "s/listen\s\+80;/listen $PUERTO;/" /etc/nginx/nginx.conf
 
+    VERSION=$(nginx -v 2>&1 | awk -F/ '{print $2}')
+    crear_index "/usr/share/nginx/html" "Nginx" "$VERSION" "$PUERTO"
+
     firewall-cmd --add-port=${PUERTO}/tcp --permanent &>/dev/null
     firewall-cmd --reload &>/dev/null
 
@@ -93,7 +99,7 @@ instalar_nginx() {
 }
 
 instalar_tomcat() {
-    servididor_instalado "Tomcat" && return
+    servidor_instalado "Tomcat" && return
     while true; do
         read -p "Ingrese el puerto para Tomcat: " PUERTO
 
@@ -125,6 +131,9 @@ instalar_tomcat() {
     fi
 
     sed -i "s/port=\"8080\"/port=\"$PUERTO\"/" /opt/tomcat/conf/server.xml
+
+    VERSION=$(grep "Server number" /opt/tomcat/RELEASE-NOTES | head -1 | awk '{print $3}')
+    crear_index "/opt/tomcat/webapps/ROOT" "Tomcat" "$VERSION" "$PUERTO"
 
     chmod +x /opt/tomcat/bin/*.sh
 
@@ -158,7 +167,8 @@ estado_apache() {
             echo "----------------------------------------"
             echo "[1]   Detener"
             echo "[2]   Reiniciar"
-            echo "[3]   Volver"
+            echo "[3]   Habilitar HTTPS"
+            echo "[4]   Volver"
         else
             echo -e "Estado: ${ROJO}DETENIDO${RESET}"
             echo "----------------------------------------"
@@ -179,7 +189,9 @@ estado_apache() {
             2)
                 systemctl restart httpd
                 ;;
-            3) return ;;
+            3)  habilitar_https_apache ;; 
+            
+            4)  return ;;
             *) echo -e "${NEGRITA}${ROJO_CLARO}Opción inválida, intente nuevamente.${RESET}" ; sleep 1 ;;
         esac
 
@@ -207,12 +219,13 @@ estado_nginx() {
             echo "----------------------------------------"
             echo "[1]   Detener"
             echo "[2]   Reiniciar"
-            echo "[3]   Volver"
+            echo "[3]   Habilitar HTTPS"
+            echo "[4]   Volver"
         else
             echo -e "Estado: ${ROJO}DETENIDO${RESET}"
             echo "----------------------------------------"
             echo "[1]   Iniciar"
-            echo "[3]   Volver"
+            echo "[4]   Volver"
         fi
 
         read -p "Seleccione: " op
@@ -228,7 +241,8 @@ estado_nginx() {
             2)
                 systemctl restart nginx
                 ;;
-            3) return ;;
+            3) habilitar_https_nginx ;;
+            4) return ;;
             *) echo -e "${NEGRITA}${ROJO_CLARO}Opción inválida, intente nuevamente.${RESET}" ; sleep 1 ;;
         esac
 
@@ -254,7 +268,8 @@ estado_tomcat() {
             echo "----------------------------------------"
             echo "[1]   Detener"
             echo "[2]   Reiniciar"
-            echo "[3]   Volver"
+            echo "[3]   Habilitar HTTPS"
+            echo "[4]   Volver"
         else
             echo -e "Estado: ${ROJO}DETENIDO${RESET}"
             echo "----------------------------------------"
@@ -277,7 +292,8 @@ estado_tomcat() {
                 sleep 2
                 /opt/tomcat/bin/startup.sh
                 ;;
-            3) return ;;
+            3) habilitar_https_tomcat ;;
+            4) return ;;
             *) echo -e "${NEGRITA}${ROJO_CLARO}Opción inválida, intente nuevamente.${RESET}" ; sleep 1 ;;
         esac
 
@@ -308,7 +324,7 @@ status_srvweb() {
     done
 }
 instalar_apache_online() {
-    if servididor_instalado "Apache"; then
+    if servidor_instalado "Apache"; then
         echo -e "${AMARILLO} Apache ya está instalado.${RESET}"
         read -p "Presione Enter para continuar..."
         return
@@ -325,6 +341,9 @@ instalar_apache_online() {
 
     sed -i "s/^Listen .*/Listen $PUERTO/" /etc/httpd/conf/httpd.conf
 
+    VERSION=$(httpd -v | grep version | awk '{print $3}')
+    crear_index "/var/www/html" "Apache" "$VERSION" "$PUERTO"
+
     firewall-cmd --add-port=${PUERTO}/tcp --permanent &>/dev/null
     firewall-cmd --reload &>/dev/null
 
@@ -337,7 +356,7 @@ instalar_apache_online() {
 }
 
 instalar_nginx_online() {
-    if servididor_instalado "Nginx"; then
+    if servidor_instalado "Nginx"; then
         echo -e "${AMARILLO} Nginx ya está instalado.${RESET}"
         read -p "Presione Enter para continuar..."
         return
@@ -354,6 +373,9 @@ instalar_nginx_online() {
 
     sed -i "s/listen\s\+80;/listen $PUERTO;/" /etc/nginx/nginx.conf
 
+    VERSION=$(nginx -v 2>&1 | awk -F/ '{print $2}')
+    crear_index "/usr/share/nginx/html" "Nginx" "$VERSION" "$PUERTO"
+
     firewall-cmd --add-port=${PUERTO}/tcp --permanent &>/dev/null
     firewall-cmd --reload &>/dev/null
 
@@ -366,7 +388,7 @@ instalar_nginx_online() {
 }
 
 instalar_tomcat_online() {
-    if servididor_instalado "Tomcat"; then
+    if servidor_instalado "Tomcat"; then
         echo -e "${AMARILLO} Tomcat ya está instalado.${RESET}"
         read -p "Presione Enter para continuar..."
         return
@@ -398,6 +420,9 @@ instalar_tomcat_online() {
     tar -xzf "$TOMCAT_FILE" -C /opt/tomcat --strip-components=1
 
     sed -i "s/port=\"8080\"/port=\"$PUERTO\"/" /opt/tomcat/conf/server.xml
+
+    VERSION=$(grep "Server number" /opt/tomcat/RELEASE-NOTES | head -1 | awk '{print $3}')
+    crear_index "/opt/tomcat/webapps/ROOT" "Tomcat" "$VERSION" "$PUERTO"
 
     chmod +x /opt/tomcat/bin/*.sh
 
@@ -494,4 +519,128 @@ menu_instalacion_web() {
                 ;;
         esac
     done
+}
+
+habilitar_https_apache() {
+    read -p "Puerto HTTPS: " PUERTO
+    validar_puerto "$PUERTO" || return
+
+    SSL_PATH=$(generar_certificado_ssl_web)
+
+    dnf install -y mod_ssl &>/dev/null
+
+    # Evitar duplicación
+    if grep -q "Listen $PUERTO" /etc/httpd/conf.d/ssl.conf 2>/dev/null; then
+        echo -e "${AMARILLO} HTTPS ya configurado en ese puerto${RESET}"
+        read -p "Presione Enter para continuar..."
+        return
+    fi
+
+    cat >> /etc/httpd/conf.d/ssl.conf <<EOF
+<VirtualHost *:$PUERTO>
+    SSLEngine on
+    SSLCertificateFile $SSL_PATH/fullchain.pem
+    SSLCertificateKeyFile $SSL_PATH/privkey.pem
+    DocumentRoot /var/www/html
+</VirtualHost>
+EOF
+
+    firewall-cmd --add-port=${PUERTO}/tcp --permanent &>/dev/null
+    firewall-cmd --reload &>/dev/null
+
+    semanage port -a -t http_port_t -p tcp $PUERTO 2>/dev/null || \
+    semanage port -m -t http_port_t -p tcp $PUERTO
+
+    systemctl restart httpd
+
+    echo -e "${VERDE} HTTPS habilitado en Apache (puerto $PUERTO)${RESET}"
+
+    read -p "Presione Enter para continuar..."
+}
+
+habilitar_https_nginx() {
+    read -p "Puerto HTTPS: " PUERTO
+    validar_puerto "$PUERTO" || return
+
+    SSL_PATH=$(generar_certificado_ssl_web)
+
+    # Evitar duplicación
+    if grep -q "listen $PUERTO ssl" /etc/nginx/conf.d/ssl.conf 2>/dev/null; then
+        echo -e "${AMARILLO} HTTPS ya configurado en ese puerto${RESET}"
+        read -p "Presione Enter para continuar..."
+        return
+    fi
+
+    cat >> /etc/nginx/conf.d/ssl.conf <<EOF
+server {
+    listen $PUERTO ssl;
+
+    ssl_certificate $SSL_PATH/fullchain.pem;
+    ssl_certificate_key $SSL_PATH/privkey.pem;
+
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+    }
+}
+EOF
+
+    firewall-cmd --add-port=${PUERTO}/tcp --permanent &>/dev/null
+    firewall-cmd --reload &>/dev/null
+
+    semanage port -a -t http_port_t -p tcp $PUERTO 2>/dev/null || \
+    semanage port -m -t http_port_t -p tcp $PUERTO
+
+    systemctl restart nginx
+
+    echo -e "${VERDE} HTTPS habilitado en Nginx (puerto $PUERTO)${RESET}"
+    read -p "Presione Enter para continuar..."
+}
+
+habilitar_https_tomcat() {
+
+    read -p "Puerto a convertir a HTTPS: " PUERTO
+    validar_puerto "$PUERTO" || return
+
+    # Generar keystore si no existe
+    if [ ! -f /opt/tomcat/conf/keystore.jks ]; then
+        keytool -genkeypair \
+        -alias tomcat \
+        -keyalg RSA \
+        -keystore /opt/tomcat/conf/keystore.jks \
+        -storepass changeit \
+        -keypass changeit \
+        -validity 365 \
+        -dname "CN=localhost" &>/dev/null
+
+        chown $(whoami):$(whoami) /opt/tomcat/conf/keystore.jks
+        chmod 600 /opt/tomcat/conf/keystore.jks
+    fi
+
+    echo "Eliminando configuración HTTP en puerto $PUERTO..."
+
+    # 🔥 BORRAR cualquier connector HTTP en ese puerto
+    sed -i "/Connector port=\"$PUERTO\"/,/\/>/d" /opt/tomcat/conf/server.xml
+
+    echo "Configurando HTTPS en puerto $PUERTO..."
+
+    sed -i "/<\/Service>/i \
+<Connector port=\"$PUERTO\" protocol=\"org.apache.coyote.http11.Http11NioProtocol\" SSLEnabled=\"true\" maxThreads=\"150\" scheme=\"https\" secure=\"true\">\
+<SSLHostConfig>\
+<Certificate certificateKeystoreFile=\"/opt/tomcat/conf/keystore.jks\" certificateKeystorePassword=\"changeit\" type=\"RSA\" />\
+</SSLHostConfig>\
+</Connector>" /opt/tomcat/conf/server.xml
+
+    firewall-cmd --add-port=${PUERTO}/tcp --permanent &>/dev/null
+    firewall-cmd --reload &>/dev/null
+
+    pkill -9 -f tomcat &>/dev/null
+
+    export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+    export JRE_HOME=$JAVA_HOME
+
+    /opt/tomcat/bin/startup.sh &>/dev/null
+
+    echo -e "${VERDE} Puerto $PUERTO ahora usa HTTPS${RESET}"
+    read -p "Presione Enter para continuar..."
 }
