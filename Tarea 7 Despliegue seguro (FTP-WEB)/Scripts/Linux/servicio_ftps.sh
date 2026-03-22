@@ -361,7 +361,7 @@ servicio_instalado() {
 }
 
 instalar_apache() {
-    verificar_instalacion "Apache" && return
+    servicio_instalado "Apache" && return
     while true; do
         read -p "Ingrese el puerto para Apache: " PUERTO
 
@@ -397,7 +397,7 @@ instalar_apache() {
 }
 
 instalar_nginx() {
-    verificar_instalacion "Nginx" && return
+    servicio_instalado "Nginx" && return
     while true; do
         read -p "Ingrese el puerto para Nginx: " PUERTO
 
@@ -433,7 +433,7 @@ instalar_nginx() {
 }
 
 instalar_tomcat() {
-    verificar_instalacion "Tomcat" && return
+    servicio_instalado "Tomcat" && return
     while true; do
         read -p "Ingrese el puerto para Tomcat: " PUERTO
 
