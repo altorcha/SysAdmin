@@ -15,8 +15,10 @@ Menu-Orquestador(){
         echo "=============================================================================="
         echo -e "${NEGRITA}${AZUL}           Despliegue de Servicios (FTP/WEB)          ${RESET}"
         echo "=============================================================================="
-        echo "1) Menu FTP (vsftpd)"
-        echo "2) Salir"
+        echo "[1]   Menu FTP"
+        echo "[2]   Instalación de Servicios Web (Apache/Nginx/Tomcat)"
+        echo "[3]   Estado de Servicios Web"
+        echo "[4]   Salir"
         echo "==============================="
         read -p "Seleccione una opción: " opcion
 
@@ -25,6 +27,12 @@ Menu-Orquestador(){
                 menu-ftps
                 ;;
             2)
+                menu-web
+                ;;
+            3)
+                estado-web
+                ;;
+            4)
                 echo -e "${NEGRITA}${VERDE}Saliendo...${RESET}"
                 exit 0
                 ;;
