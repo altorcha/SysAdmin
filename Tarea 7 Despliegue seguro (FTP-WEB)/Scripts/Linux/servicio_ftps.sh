@@ -339,8 +339,29 @@ configurar_conexion_ftp() {
     sleep 1
 }
 
-instalar_apache() {
+servicio_instalado() {
+    local servicio="$1"
 
+    case "$servicio" in
+        Apache)
+            rpm -q httpd &>/dev/null && return 0
+            ;;
+        Nginx)
+            rpm -q nginx &>/dev/null && return 0
+            ;;
+        Tomcat)
+            [[ -d /opt/tomcat ]] && return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    return 1
+}
+
+instalar_apache() {
+    verificar_instalacion "Apache" && return
     while true; do
         read -p "Ingrese el puerto para Apache: " PUERTO
 
@@ -376,7 +397,7 @@ instalar_apache() {
 }
 
 instalar_nginx() {
-
+    verificar_instalacion "Nginx" && return
     while true; do
         read -p "Ingrese el puerto para Nginx: " PUERTO
 
@@ -412,7 +433,7 @@ instalar_nginx() {
 }
 
 instalar_tomcat() {
-
+    verificar_instalacion "Tomcat" && return
     while true; do
         read -p "Ingrese el puerto para Tomcat: " PUERTO
 
