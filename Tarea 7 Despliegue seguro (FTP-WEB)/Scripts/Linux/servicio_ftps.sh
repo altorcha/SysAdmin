@@ -5,6 +5,37 @@ RAIZ_FTP="/var/ftp/pub/http"
 
 SERVICIOS=("Apache" "Nginx" "Tomcat")
 
+validar_ip() {
+    [[ $1 =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+}
+
+validar_puerto() {
+    local puerto="$1"
+    local reservados=(22 25 53 443 3306 5432 6379 27017)
+
+    if ! [[ "$puerto" =~ ^[0-9]+$ ]]; then
+        echo -e "${ROJO_CLARO}Puerto inválido${RESET}"
+        return 1
+    fi
+
+    if (( puerto < 1 || puerto > 65535 )); then
+        echo -e "${ROJO_CLARO}Puerto fuera de rango${RESET}"
+        return 1
+    fi
+
+    for r in "${reservados[@]}"; do
+        (( puerto == r )) && {
+            echo -e "${ROJO_CLARO}Puerto reservado${RESET}"
+            return 1
+        }
+    done
+
+    return 0
+}
+
+puerto_en_uso() {
+    ss -tln | grep -q ":$1 " && return 0 || return 1
+}
 
 instalar_vsftpd() {
     if rpm -q vsftpd &> /dev/null; then
@@ -242,8 +273,8 @@ poblar_repositorio() {
     cd "$RAIZ_FTP/Tomcat" || exit
 
     rm -f *.tar.gz *.sha256
-
-    TOMCAT_URL="https://dlcdn.apache.org/tomcat/tomcat-10/v10.1.28/bin/apache-tomcat-10.1.28.tar.gz"
+                
+    TOMCAT_URL="https://archive.apache.org/dist/tomcat/tomcat-10/v10.1.28/bin/apache-tomcat-10.1.28.tar.gz"
     ARCHIVO_TOMCAT=$(basename "$TOMCAT_URL")
 
     curl -s -O "$TOMCAT_URL"
@@ -256,11 +287,377 @@ poblar_repositorio() {
     echo 
 }
 
+validar_repositorio() {
+    local SERVICIO=$1
+
+    echo -e "${AZUL}Verificando repositorio $SERVICIO...${RESET}"
+
+    if ! curl -k --ssl-reqd -u $USUARIO_FTP:$PASSWORD_FTP \
+        ftp://$IP_SERVIDOR/http/$SERVICIO/ &>/dev/null; then
+        echo -e "${ROJO_CLARO}No se puede acceder al repositorio${RESET}"
+        return 1
+    fi
+
+    if ! find "$RAIZ_FTP/$SERVICIO" -name "*.sha256" -execdir sha256sum -c {} \; &>/dev/null; then
+        echo -e "${ROJO_CLARO}Falló la validación SHA256${RESET}"
+        return 1
+    fi
+
+    echo -e "${VERDE} Repositorio validado${RESET}"
+}
+
+configurar_conexion_ftp() {
+
+    echo -e "${NEGRITA}${AZUL}Configuración de conexión al repositorio FTP${RESET}"
+
+    # IP
+    while true; do
+        read -p "Ingrese la IP del servidor FTP: " IP_SERVIDOR
+        if validar_ip "$IP_SERVIDOR"; then
+            break
+        else
+            echo -e "${ROJO_CLARO}IP inválida${RESET}"
+        fi
+    done
+
+    # Usuario
+    while true; do
+        read -p "Ingrese el usuario FTP: " USUARIO_FTP
+        [[ -n "$USUARIO_FTP" ]] && break
+        echo -e "${ROJO_CLARO}Usuario no puede estar vacío${RESET}"
+    done
+
+    # Password
+    while true; do
+        read -s -p "Ingrese la contraseña FTP: " PASSWORD_FTP
+        echo ""
+        [[ -n "$PASSWORD_FTP" ]] && break
+        echo -e "${ROJO_CLARO}Contraseña no puede estar vacía${RESET}"
+    done
+
+    echo -e "${VERDE} Datos de conexión configurados${RESET}"
+    sleep 1
+}
+
+instalar_apache() {
+
+    while true; do
+        read -p "Ingrese el puerto para Apache: " PUERTO
+
+        validar_puerto "$PUERTO" || continue
+
+        if puerto_en_uso "$PUERTO"; then
+            echo -e "${ROJO_CLARO}El puerto $PUERTO ya está en uso${RESET}"
+            continue
+        fi
+
+        break
+    done
+
+    validar_repositorio "Apache" || return
+
+    echo "Instalando Apache..."
+    if ! dnf install -y $RAIZ_FTP/Apache/*.rpm &>/dev/null; then
+        echo -e "${ROJO_CLARO}Falló la instalación de Apache${RESET}"
+        return
+    fi
+
+    sed -i "s/^Listen .*/Listen $PUERTO/" /etc/httpd/conf/httpd.conf
+
+    firewall-cmd --add-port=${PUERTO}/tcp --permanent &>/dev/null
+    firewall-cmd --reload &>/dev/null
+
+    semanage port -a -t http_port_t -p tcp $PUERTO 2>/dev/null || \
+    semanage port -m -t http_port_t -p tcp $PUERTO
+
+    systemctl enable --now httpd &>/dev/null
+
+    echo -e "${VERDE} Apache instalado en puerto $PUERTO${RESET}"
+}
+
+instalar_nginx() {
+
+    while true; do
+        read -p "Ingrese el puerto para Nginx: " PUERTO
+
+        validar_puerto "$PUERTO" || continue
+
+        if puerto_en_uso "$PUERTO"; then
+            echo -e "${ROJO_CLARO}El puerto $PUERTO ya está en uso${RESET}"
+            continue
+        fi
+
+        break
+    done
+
+    validar_repositorio "Nginx" || return
+
+    echo "Instalando Nginx..."
+    if ! dnf install -y $RAIZ_FTP/Nginx/*.rpm &>/dev/null; then
+        echo -e "${ROJO_CLARO}Falló la instalación de Nginx${RESET}"
+        return
+    fi
+
+    sed -i "s/listen\s\+80;/listen $PUERTO;/" /etc/nginx/nginx.conf
+
+    firewall-cmd --add-port=${PUERTO}/tcp --permanent &>/dev/null
+    firewall-cmd --reload &>/dev/null
+
+    semanage port -a -t http_port_t -p tcp $PUERTO 2>/dev/null || \
+    semanage port -m -t http_port_t -p tcp $PUERTO
+
+    systemctl enable --now nginx &>/dev/null
+
+    echo -e "${VERDE} Nginx instalado en puerto $PUERTO${RESET}"
+}
+
+instalar_tomcat() {
+
+    while true; do
+        read -p "Ingrese el puerto para Tomcat: " PUERTO
+
+        validar_puerto "$PUERTO" || continue
+
+        if puerto_en_uso "$PUERTO"; then
+            echo -e "${ROJO_CLARO}El puerto $PUERTO ya está en uso${RESET}"
+            continue
+        fi
+
+        break
+    done
+
+    validar_repositorio "Tomcat" || return
+
+    echo "Instalando Java..."
+    if ! dnf install -y java-21-openjdk &>/dev/null; then
+        echo -e "${ROJO_CLARO}Falló la instalación de Java${RESET}"
+        return
+    fi
+
+    echo "Instalando Tomcat..."
+    mkdir -p /opt/tomcat
+
+    if ! tar -xzf $RAIZ_FTP/Tomcat/apache-tomcat-*.tar.gz \
+        -C /opt/tomcat --strip-components=1; then
+        echo -e "${ROJO_CLARO}Falló la extracción de Tomcat${RESET}"
+        return
+    fi
+
+    sed -i "s/port=\"8080\"/port=\"$PUERTO\"/" /opt/tomcat/conf/server.xml
+
+    chmod +x /opt/tomcat/bin/*.sh
+
+    export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
+
+    firewall-cmd --add-port=${PUERTO}/tcp --permanent &>/dev/null
+    firewall-cmd --reload &>/dev/null
+
+    /opt/tomcat/bin/startup.sh &>/dev/null
+
+    echo -e "${VERDE} Tomcat instalado en puerto $PUERTO${RESET}"
+}
+
+estado_apache() {
+    while true; do
+        clear
+        echo "----------------------------------------"
+        echo -e "${NEGRITA}${AZUL}        ESTADO DEL SERVICIO APACHE${RESET}"
+        echo "----------------------------------------"
+
+        if ! rpm -q httpd &>/dev/null; then
+            echo -e "${AMARILLO_CLARO}[!] Apache NO está instalado${RESET}"
+            read -p "Presione Enter para volver..."
+            return
+        fi
+
+        ESTADO=$(systemctl is-active httpd)
+
+        if [ "$ESTADO" == "active" ]; then
+            echo -e "Estado: ${VERDE}ACTIVO${RESET}"
+            echo "----------------------------------------"
+            echo "[1]   Detener"
+            echo "[2]   Reiniciar"
+            echo "[3]   Volver"
+        else
+            echo -e "Estado: ${ROJO}DETENIDO${RESET}"
+            echo "----------------------------------------"
+            echo "[1]   Iniciar"
+            echo "[3]   Volver"
+        fi
+
+        read -p "Seleccione: " op
+
+        case $op in
+            1)
+                if [ "$ESTADO" == "active" ]; then
+                    systemctl stop httpd
+                else
+                    systemctl start httpd
+                fi
+                ;;
+            2)
+                systemctl restart httpd
+                ;;
+            3) return ;;
+            *) echo -e "${NEGRITA}${ROJO_CLARO}Opción inválida, intente nuevamente.${RESET}" ; sleep 1 ;;
+        esac
+
+        sleep 2
+    done
+}
+
+estado_nginx() {
+    while true; do
+        clear
+        echo "----------------------------------------"
+        echo -e "${NEGRITA}${AZUL}        ESTADO DEL SERVICIO NGINX${RESET}"
+        echo "----------------------------------------"
+
+        if ! rpm -q nginx &>/dev/null; then
+            echo -e "${AMARILLO_CLARO}[!] Nginx NO está instalado${RESET}"
+            read -p "Presione Enter para volver..."
+            return
+        fi
+
+        ESTADO=$(systemctl is-active nginx)
+
+        if [ "$ESTADO" == "active" ]; then
+            echo -e "Estado: ${VERDE}ACTIVO${RESET}"
+            echo "----------------------------------------"
+            echo "[1]   Detener"
+            echo "[2]   Reiniciar"
+            echo "[3]   Volver"
+        else
+            echo -e "Estado: ${ROJO}DETENIDO${RESET}"
+            echo "----------------------------------------"
+            echo "[1]   Iniciar"
+            echo "[3]   Volver"
+        fi
+
+        read -p "Seleccione: " op
+
+        case $op in
+            1)
+                if [ "$ESTADO" == "active" ]; then
+                    systemctl stop nginx
+                else
+                    systemctl start nginx
+                fi
+                ;;
+            2)
+                systemctl restart nginx
+                ;;
+            3) return ;;
+            *) echo -e "${NEGRITA}${ROJO_CLARO}Opción inválida, intente nuevamente.${RESET}" ; sleep 1 ;;
+        esac
+
+        sleep 2
+    done
+}
+
+estado_tomcat() {
+    while true; do
+        clear
+        echo "----------------------------------------"
+        echo -e "${NEGRITA}${AZUL}        ESTADO DEL SERVICIO TOMCAT${RESET}"
+        echo "----------------------------------------"
+
+        if [ ! -d "/opt/tomcat" ]; then
+            echo -e "${AMARILLO_CLARO}[!] Tomcat NO está instalado${RESET}"
+            read -p "Presione Enter para volver..."
+            return
+        fi
+
+        if pgrep -f tomcat &>/dev/null; then
+            echo -e "Estado: ${VERDE}ACTIVO${RESET}"
+            echo "----------------------------------------"
+            echo "[1]   Detener"
+            echo "[2]   Reiniciar"
+            echo "[3]   Volver"
+        else
+            echo -e "Estado: ${ROJO}DETENIDO${RESET}"
+            echo "----------------------------------------"
+            echo "[1]   Iniciar"
+            echo "[3]   Volver"
+        fi
+
+        read -p "Seleccione: " op
+
+        case $op in
+            1)
+                if pgrep -f tomcat &>/dev/null; then
+                    /opt/tomcat/bin/shutdown.sh
+                else
+                    /opt/tomcat/bin/startup.sh
+                fi
+                ;;
+            2)
+                /opt/tomcat/bin/shutdown.sh
+                sleep 2
+                /opt/tomcat/bin/startup.sh
+                ;;
+            3) return ;;
+            *) echo -e "${NEGRITA}${ROJO_CLARO}Opción inválida, intente nuevamente.${RESET}" ; sleep 1 ;;
+        esac
+
+        sleep 2
+    done
+}
+
+estado-web() {
+    while true; do
+        clear
+        echo "========================================"
+        echo -e "${NEGRITA}${AZUL}      ESTADO DE SERVICIOS WEB${RESET}"
+        echo "========================================"
+        echo "[1]   Apache"
+        echo "[2]   Nginx"
+        echo "[3]   Tomcat"
+        echo "[4]   Volver"
+        echo "========================================"
+        read -p "Seleccione opción: " op
+
+        case $op in
+            1) estado_apache ;;
+            2) estado_nginx ;;
+            3) estado_tomcat ;;
+            4) return ;;
+            *) echo -e "${NEGRITA}${ROJO_CLARO}Opción inválida, intente nuevamente.${RESET}" ; sleep 1 ;;
+        esac
+    done
+}
+
+menu-web() {
+    configurar_conexion_ftp
+    while true; do
+        clear
+        echo "==============================================="
+        echo -e "${NEGRITA}${AZUL}      INSTALADOR DE SERVICIOS WEB${RESET}"
+        echo "==============================================="
+        echo "[1]   Instalar Apache"
+        echo "[2]   Instalar Nginx"
+        echo "[3]   Instalar Tomcat"
+        echo "[4]   Volver"
+        echo "==============================================="
+        read -p "Seleccione opción: " op
+
+        case $op in
+            1) instalar_apache ;;
+            2) instalar_nginx ;;
+            3) instalar_tomcat ;;
+            4) return ;;
+            *) echo -e "${NEGRITA}${ROJO_CLARO}Opción inválida, intente nuevamente.${RESET}" ; sleep 1 ;;
+        esac
+
+        read -p "Presione Enter para continuar..."
+    done
+}
+
 menu-ftps() {
     while true; do
         clear
         echo "=============================================================================="
-        echo -e "${NEGRITA}${AZUL}           Menu FTPS        ${RESET}"
+        echo -e "${NEGRITA}${AZUL}                                 Menu FTPS${RESET}"
         echo "=============================================================================="
         echo "[1]    Estado vsftpd"
         echo "[2]    Instalar vsftpd"
