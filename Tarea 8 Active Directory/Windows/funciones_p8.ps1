@@ -1,0 +1,10 @@
+
+. "$PSScriptRoot\ui.ps1"
+. "$PSScriptRoot\dependencias.ps1"
+. "$PSScriptRoot\domaincontroller.ps1"
+. "$PSScriptRoot\usuarios.ps1"
+. "$PSScriptRoot\horarios.ps1"
+. "$PSScriptRoot\cuotas.ps1"
+. "$PSScriptRoot\apantallamiento.ps1"
+. "$PSScriptRoot\applocker.ps1"
+. "$PSScriptRoot\usuariodinamico.ps1"
